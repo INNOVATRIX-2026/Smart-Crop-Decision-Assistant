@@ -4,8 +4,8 @@
     {
       "name": "crop-assistant",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "streamlit", "run", "app.py", "--server.headless=true", "--server.port=8501"],
-      "port": 8501
+      "runtimeArgs": ["-m", "streamlit", "run", "app.py", "--server.headless=true", "--server.port=8533"],
+      "port": 8533
     }
   ]
 }
