@@ -1,0 +1,134 @@
+# =============================================================================
+# Maize — agronomic reference data
+# =============================================================================
+# Sourcing tags: [FAO56] FAO Irrigation & Drainage Paper 56 (Allen et al. 1998)
+#                [SHC]   Soil Health Card fertility classes (Govt. of India)
+#                [ICAR]  ICAR / state agri-university package of practices
+#                [REVIEW] working value from published ranges, not primary-verified
+#
+# Maize is the most drought-sensitive of the five at one specific moment: water
+# stress during tasselling and silking causes disproportionate yield loss, which is
+# why `yield_response_ky` is the highest here (1.25) and why `mid` is flagged
+# critical.
+# =============================================================================
+
+crop: maize
+display_name:
+  en: Maize
+  hi: मक्का
+category: cereal
+season: kharif                  # also grown as rabi/spring in parts of India
+
+water:
+  # [FAO56] Table 12, Maize (grain). Kc_end 0.60 if harvested at high moisture,
+  # 0.35 if left to field-dry. 0.55 taken for grain harvest. [REVIEW]
+  kc:
+    initial: 0.30
+    mid: 1.20
+    end: 0.55
+
+  # [FAO56] Table 11, Maize (grain), tropical/India: 20 / 35 / 40 / 30 = 125 days.
+  stages:
+    - name: initial             # sowing -> establishment
+      days: 20
+    - name: development         # knee-high -> pre-tassel
+      days: 35
+    - name: mid                 # tasselling, silking, grain fill
+      days: 40
+    - name: late                # dent -> physiological maturity
+      days: 30
+
+  # [FAO56] Table 22, Maize: 1.0-1.7 m. 1.20 m taken for Indian conditions.
+  root_depth_m:
+    initial: 0.15
+    max: 1.20
+
+  depletion_fraction_p: 0.55    # [FAO56] Table 22
+
+  yield_response_ky: 1.25       # [FAO56] / FAO-33 — highest of the five crops here
+
+  application_efficiency:
+    surface: 0.60
+    sprinkler: 0.75
+    drip: 0.90
+
+  # [ICAR] Tasselling/silking is the make-or-break window for maize yield.
+  critical_stages: [mid]
+
+nutrients:
+  yield_basis: grain
+
+  # Total uptake (grain + stover) per tonne of GRAIN. Ranges: N 22-25, P2O5 9-11,
+  # K2O 20-25 kg/t. [ICAR] [REVIEW]
+  uptake_per_tonne_grain:
+    N: 24.0
+    P2O5: 10.0
+    K2O: 22.0
+
+  use_efficiency:
+    N: 0.45
+    P2O5: 0.20
+    K2O: 0.60
+
+  # [ICAR] Classic three-way maize split: basal, knee-high, tasselling. P and K
+  # fully basal. [REVIEW]
+  splits:
+    - stage: basal
+      day: 0
+      fraction: {N: 0.34, P2O5: 1.00, K2O: 1.00}
+    - stage: development        # knee-high, ~30 DAS
+      day: 30
+      fraction: {N: 0.33, P2O5: 0.0, K2O: 0.0}
+    - stage: mid                # tasselling, ~55 DAS
+      day: 55
+      fraction: {N: 0.33, P2O5: 0.0, K2O: 0.0}
+
+  attainable_yield_t_ha:
+    rainfed: 2.5
+    irrigated: 5.5
+
+  # [ICAR] 120:60:40 is the widely used irrigated-maize package. Hybrid-specific
+  # recommendations run higher (150:75:60); the conservative figure is used here and
+  # scales up automatically with the yield target. [REVIEW]
+  reference_dose_kg_ha:
+    N: 120
+    P2O5: 60
+    K2O: 40
+    at_yield_t_ha: 5.0
+
+  fertility_adjustment:
+    low: 1.25
+    medium: 1.00
+    high: 0.75
+
+  cross_check_tolerance: 0.60
+
+soil_fertility_classes:
+  available_N_kg_ha:
+    low: [0, 280]
+    medium: [280, 560]
+    high: [560, 2000]
+  available_P2O5_kg_ha:
+    low: [0, 10]
+    medium: [10, 25]
+    high: [25, 200]
+  available_K2O_kg_ha:
+    low: [0, 108]
+    medium: [108, 280]
+    high: [280, 1000]
+
+mineralisation_fraction: 0.02
+
+limits:
+  ph:
+    optimal: [5.8, 7.5]
+    tolerable: [5.0, 8.0]
+
+  temperature_c:
+    optimal: [21.0, 30.0]
+    heat_stress_above: 35.0      # pollen viability collapses during tasselling
+    cold_stress_below: 10.0
+    heat_stress_critical_stage: mid
+
+  # Maize is markedly intolerant of saturated soil — roots suffocate quickly.
+  waterlogging_tolerance_days: 2

@@ -41,8 +41,15 @@ FEATURE_META = {
     "temperature": {"label": "Temperature",    "unit": "°C",    "min": -5.0, "max": 55.0,  "step": 0.1,  "default": 20.9,   "help": "Average temperature"},
     "humidity":    {"label": "Humidity",       "unit": "%",     "min": 0.0,  "max": 100.0, "step": 0.5,  "default": 82.0,   "help": "Relative humidity"},
     "ph":          {"label": "Soil pH",        "unit": "",      "min": 0.0,  "max": 14.0,  "step": 0.1,  "default": 6.5,    "help": "Soil pH value (0-14)"},
-    "rainfall":    {"label": "Rainfall",       "unit": "mm",    "min": 0.0,  "max": 320.0, "step": 1.0,  "default": 202.9,  "help": "Rainfall over the growing period (approx. monthly mm)"},
+    "rainfall":    {"label": "Rainfall",       "unit": "mm",    "min": 0.0,  "max": 1200.0, "step": 1.0,  "default": 202.9,  "help": "Rainfall over the growing period. NOTE: the live-weather button fills this with the last 30 days' total, which is a different quantity — monsoon totals can exceed the dataset's 300 mm range."},
 }
+
+# The synthetic training dataset's `rainfall` column spans roughly 20-300 mm. Live
+# 30-day monsoon totals routinely exceed that (Jabalpur in August: 465 mm), which is
+# both out of the model's training distribution and — before the max above was
+# raised — a hard crash when written into the slider. Values beyond this are flagged
+# in the UI as extrapolation rather than silently accepted.
+DATASET_RAINFALL_MAX = 300.0
 
 # Display niceties: emoji + category per crop (falls back gracefully if missing).
 CROP_META = {

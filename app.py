@@ -1,10 +1,14 @@
 """Smart Crop Decision Assistant — Streamlit application.
 
-Two decision engines, one workflow:
-  1. **Recommend a crop**  — ML model ranks the best crops for the field's
-     soil + weather readings.
-  2. **Management actions** — for any chosen crop, a rule-based advisor turns the
-     same readings into prioritized, actionable guidance and a suitability score.
+**Primary function — management actions.** Given crop type, soil conditions and
+weather, the agronomic engine (``src/engine/``) prescribes *how much* water and
+fertiliser and *when*, with the arithmetic on show. This is what the problem
+statement asks for: crop type is an **input**, and the output is a quantity and a
+date.
+
+**Secondary — field suitability.** A ranking of which crops suit the field's
+readings. This solves the *inverse* problem and is kept as an exploratory view, with
+its synthetic training data stated plainly rather than presented as a headline result.
 
 Run with:  ``streamlit run app.py``
 """
@@ -19,6 +23,7 @@ from src.advisor import SEVERITY_ICON, advise
 from src.data_loader import load_dataset
 from src.model import load_metrics, load_model, load_stats, predict
 from src.weather import geocode, get_weather
+from ui import advisory
 
 st.set_page_config(
     page_title="Smart Crop Decision Assistant",
@@ -67,10 +72,41 @@ for feat, meta in config.FEATURE_META.items():
 
 
 def _apply_weather(weather: dict) -> None:
-    """Push fetched weather into the input widgets."""
+    """Push fetched weather into the input widgets.
+
+    Values are clamped to each widget's declared bounds. Without this, a live fetch
+    over a monsoon region raises ``StreamlitValueAboveMaxError`` — Jabalpur in August
+    returns a 30-day total of ~465 mm against a slider that used to stop at 320.
+
+    The deeper issue is a units mismatch rather than a bounds problem: the dataset's
+    ``rainfall`` column means *growing-period* rainfall, while ``get_weather`` returns
+    the *last 30 days*. They are different quantities, so anything past the dataset's
+    range is extrapolation for the suitability model and is reported as such.
+    """
+    notes: list[str] = []
     for key in ("temperature", "humidity", "rainfall"):
-        if weather.get(key) is not None:
-            st.session_state[key] = float(weather[key])
+        raw = weather.get(key)
+        if raw is None:
+            continue
+        meta = config.FEATURE_META[key]
+        value = float(raw)
+        clamped = min(max(value, meta["min"]), meta["max"])
+        if clamped != value:
+            notes.append(
+                f"{meta['label']} {value:g} {meta['unit']} was outside the input range "
+                f"and clamped to {clamped:g}."
+            )
+        st.session_state[key] = clamped
+
+    rain = weather.get("rainfall")
+    if rain is not None and float(rain) > config.DATASET_RAINFALL_MAX:
+        notes.append(
+            f"{float(rain):g} mm over 30 days is beyond the suitability model's "
+            f"training range (~{config.DATASET_RAINFALL_MAX:g} mm), so its ranking is "
+            f"extrapolating. The Management Actions tab is unaffected — it uses dated "
+            f"rainfall from Open-Meteo, not this figure."
+        )
+    st.session_state["_weather_notes"] = notes
 
 
 # --------------------------------------------------------------------------
@@ -100,6 +136,8 @@ with st.sidebar:
                         f"💧 {weather['humidity']}%  •  "
                         f"🌧️ {weather['rainfall']} mm (30-day)"
                     )
+                    for note in st.session_state.get("_weather_notes", []):
+                        st.info(note, icon="ℹ️")
             except Exception as exc:
                 st.error(f"Weather fetch failed: {exc}")
 
@@ -124,7 +162,10 @@ with st.sidebar:
     st.divider()
     st.caption(f"📊 Dataset: **{SOURCE}** · {METRICS['n_samples']} samples · "
                f"{METRICS['n_classes']} crops")
-    st.caption(f"🤖 Model test accuracy: **{METRICS['accuracy']*100:.1f}%**")
+    st.caption(
+        f"🤖 Suitability model accuracy: **{METRICS['accuracy']*100:.1f}%** — "
+        "inflated by synthetic data, see the Field Suitability tab"
+    )
 
 
 # Collect current feature values.
@@ -136,25 +177,48 @@ FEATURES = {feat: float(st.session_state[feat]) for feat in config.FEATURES}
 # --------------------------------------------------------------------------
 st.title("Smart Crop Decision Assistant")
 st.markdown(
-    "Recommends **suitable crops** and **management actions** from your soil "
-    "conditions, crop type, and live weather — powered by machine learning on a "
-    "real agricultural dataset."
+    "Given **crop type, soil conditions and weather**, this prescribes the "
+    "**management actions** a farmer needs — how much water and fertiliser, and "
+    "when — computed from FAO-56 and validated agronomic packages, with every "
+    "number's derivation on show."
 )
 
-tab_reco, tab_manage, tab_explore, tab_model = st.tabs(
-    ["🌱 Crop Recommendation", "🧭 Management Actions", "📊 Explore Data", "🤖 Model Insights"]
+tab_manage, tab_reco, tab_explore, tab_model = st.tabs(
+    ["🧭 Management Actions", "🌱 Field Suitability", "📊 Explore Data", "🤖 Model Insights"]
 )
 
 
 # --------------------------------------------------------------------------
-# Tab 1 — Crop recommendation
+# Tab 1 — Management actions (the point of the platform)
+# --------------------------------------------------------------------------
+with tab_manage:
+    advisory.render()
+
+
+# --------------------------------------------------------------------------
+# Tab 2 — Field suitability (the inverse problem; secondary)
 # --------------------------------------------------------------------------
 with tab_reco:
-    st.subheader("Best crops for your field")
+    st.subheader("Which crops suit this field?")
+    st.info(
+        "**This answers the inverse question** and is not the platform's main output. "
+        "The brief supplies crop type as an *input*; this tab instead ranks crops from "
+        "soil and climate readings. Useful for exploring a field, but read the caveat "
+        "below before quoting the confidence figures.",
+        icon="ℹ️",
+    )
+    st.warning(
+        "The model behind this ranking is trained on the Kaggle *Crop Recommendation* "
+        "dataset: 2200 rows, **exactly 100 per crop across 22 crops**. That perfect "
+        "balance means the data is generated, not observed — which is why test accuracy "
+        f"reads {METRICS['accuracy']*100:.1f}%. Treat the ranking as indicative only. "
+        "The Management Actions tab uses no part of this dataset.",
+        icon="⚠️",
+    )
 
     left, right = st.columns([2, 3])
     with left:
-        st.markdown("**Current readings**")
+        st.markdown("**Current readings** (set in the sidebar)")
         st.dataframe(
             pd.DataFrame(
                 {
@@ -170,7 +234,7 @@ with tab_reco:
     top_crop, top_prob = ranked[0]
 
     with right:
-        st.markdown("**Top recommendation**")
+        st.markdown("**Best match**")
         st.markdown(
             f"<div style='font-size:2.4rem;font-weight:700;line-height:1.2'>"
             f"{config.crop_label(top_crop)}</div>"
@@ -202,41 +266,24 @@ with tab_reco:
         },
     )
 
-    st.info(
-        f"👉 Head to **Management Actions** to see what it takes to grow "
-        f"{config.crop_label(top_crop)} (or any other crop) on this field.",
-        icon="🧭",
+    st.markdown("#### Dataset-relative guidance")
+    st.caption(
+        "The comparison below is against this crop's quartiles **in the synthetic "
+        "dataset** — not agronomic thresholds. It cannot give dosages; for real "
+        "quantities use the Management Actions tab."
     )
-    # Offer the top crop as the default for the management tab.
-    st.session_state.setdefault("manage_crop", top_crop)
-
-
-# --------------------------------------------------------------------------
-# Tab 2 — Management actions
-# --------------------------------------------------------------------------
-with tab_manage:
-    st.subheader("Crop management recommendations")
-
-    # `manage_crop` is seeded in the recommendation tab (which always runs
-    # first), so the widget reads its value from session state via `key`.
     chosen = st.selectbox(
-        "Select the crop you intend to grow",
-        options=CROPS,
-        format_func=config.crop_label,
-        key="manage_crop",
+        "Compare readings against",
+        options=CROPS, format_func=config.crop_label, key="manage_crop",
     )
-
     advice = advise(chosen, FEATURES, STATS)
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Suitability score", f"{advice.suitability:.0f}/100")
+    c1.metric("Dataset-relative fit", f"{advice.suitability:.0f}/100")
     c2.metric("Verdict", advice.verdict)
     n_urgent = sum(1 for a in advice.actions if a.severity in ("critical", "warning"))
-    c3.metric("Actions needed", n_urgent)
+    c3.metric("Readings outside range", n_urgent)
 
-    st.progress(advice.suitability / 100)
-
-    st.markdown("#### Prioritized actions")
     for a in advice.actions:
         icon = SEVERITY_ICON[a.severity]
         with st.container(border=True):
@@ -245,19 +292,10 @@ with tab_manage:
             if a.target:
                 tgt.markdown(
                     f"<div style='text-align:right;color:#555'>"
-                    f"now <b>{a.current:g}</b> · target {a.target}</div>",
+                    f"now <b>{a.current:g}</b> · dataset range {a.target}</div>",
                     unsafe_allow_html=True,
                 )
             st.markdown(a.detail)
-
-    with st.expander("How is this computed?"):
-        st.markdown(
-            "Each reading is compared to the **learned comfort zone** for the "
-            "selected crop — the 25th–75th percentile range observed for that crop "
-            "in the dataset. Readings outside the zone generate an action whose "
-            "urgency scales with how far outside they fall. The **suitability score** "
-            "is the average closeness to the ideal across all seven factors."
-        )
 
 
 # --------------------------------------------------------------------------

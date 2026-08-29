@@ -1,0 +1,150 @@
+# =============================================================================
+# Rice — agronomic reference data
+# =============================================================================
+# Sourcing tags: [FAO56] FAO Irrigation & Drainage Paper 56 (Allen et al. 1998)
+#                [SHC]   Soil Health Card fertility classes (Govt. of India)
+#                [ICAR]  ICAR / state agri-university package of practices
+#                [REVIEW] working value from published ranges, not primary-verified
+#
+# ⚠️ IMPORTANT MODELLING CAVEAT — READ BEFORE TRUSTING IRRIGATION DEPTHS
+#   The engine's FAO-56 depletion model assumes AEROBIC soil under deficit
+#   irrigation: it tracks how far the root zone dries and refills it. Traditional
+#   Indian rice is grown PUDDLED and FLOODED, maintaining 2-5 cm of standing water,
+#   which is not a deficit regime at all — the soil never dries between events.
+#
+#   The p = 0.20 depletion fraction below approximates **Alternate Wetting and
+#   Drying (AWD)**, the water-saving regime ICAR and IRRI actively promote, where
+#   the field is allowed to drain to near-saturation before re-flooding. Under AWD
+#   the depths this engine reports are meaningful.
+#
+#   Under continuous flooding, read the depth as *supplementary to* ponding
+#   management, not a replacement for it. Do not present rice irrigation figures
+#   without stating which regime is assumed.
+# =============================================================================
+
+crop: rice
+display_name:
+  en: Rice
+  hi: चावल
+category: cereal
+season: kharif                  # Jun-Jul transplanting, Oct-Nov harvest
+
+water:
+  # [FAO56] Table 12, Rice. Kc_end 0.90 with fields still wet; 0.60 if drained
+  # before harvest. 0.75 taken as a mid value for typical Indian practice. [REVIEW]
+  kc:
+    initial: 1.05               # high: standing water evaporates freely
+    mid: 1.20
+    end: 0.75
+
+  # [FAO56] Table 11, Rice (tropics): 30 / 30 / 60 / 30 = 150 days.
+  stages:
+    - name: initial             # transplanting -> establishment
+      days: 30
+    - name: development         # tillering
+      days: 30
+    - name: mid                 # panicle initiation -> flowering -> grain fill
+      days: 60
+    - name: late                # ripening
+      days: 30
+
+  # [FAO56] Table 22, Rice: 0.5-1.0 m. Rice is shallow-rooted; 0.60 m taken.
+  root_depth_m:
+    initial: 0.10
+    max: 0.60
+
+  # [FAO56] Table 22 gives p = 0.20 for rice — by far the lowest of any crop here,
+  # reflecting how intolerant it is of drying. See the AWD caveat above.
+  depletion_fraction_p: 0.20
+
+  yield_response_ky: 1.09       # [FAO56] / FAO-33
+
+  application_efficiency:
+    surface: 0.50               # lower than other crops: puddled fields lose more
+    sprinkler: 0.70
+    drip: 0.85
+
+  # [ICAR] Panicle initiation and flowering are the least drought-tolerant phases.
+  critical_stages: [mid]
+
+nutrients:
+  yield_basis: grain
+
+  # Total uptake (grain + straw) per tonne of GRAIN. Reported ranges: N 20-25,
+  # P2O5 10-12, K2O 25-30 kg/t. Mid values taken. [ICAR] [REVIEW]
+  uptake_per_tonne_grain:
+    N: 22.0
+    P2O5: 11.0
+    K2O: 28.0
+
+  # Nitrogen efficiency is notably lower in flooded rice than in wheat: ammonia
+  # volatilisation and denitrification in saturated soil are major loss paths.
+  # [ICAR] [REVIEW]
+  use_efficiency:
+    N: 0.40
+    P2O5: 0.20
+    K2O: 0.60
+
+  # [ICAR] N in three splits; K split basal/panicle-initiation is standard for rice
+  # because potassium demand peaks late. P fully basal. [REVIEW]
+  splits:
+    - stage: basal              # at transplanting
+      day: 0
+      fraction: {N: 0.50, P2O5: 1.00, K2O: 0.50}
+    - stage: development        # active tillering ~30 DAT
+      day: 30
+      fraction: {N: 0.25, P2O5: 0.0, K2O: 0.0}
+    - stage: mid                # panicle initiation ~60 DAT
+      day: 60
+      fraction: {N: 0.25, P2O5: 0.0, K2O: 0.50}
+
+  attainable_yield_t_ha:
+    rainfed: 3.0
+    irrigated: 5.5
+
+  # [ICAR] 120:60:60 is the standard irrigated medium-duration rice package.
+  reference_dose_kg_ha:
+    N: 120
+    P2O5: 60
+    K2O: 60
+    at_yield_t_ha: 5.5
+
+  fertility_adjustment:
+    low: 1.25
+    medium: 1.00
+    high: 0.75
+
+  cross_check_tolerance: 0.60
+
+soil_fertility_classes:
+  available_N_kg_ha:
+    low: [0, 280]
+    medium: [280, 560]
+    high: [560, 2000]
+  available_P2O5_kg_ha:
+    low: [0, 10]
+    medium: [10, 25]
+    high: [25, 200]
+  available_K2O_kg_ha:
+    low: [0, 108]
+    medium: [108, 280]
+    high: [280, 1000]
+
+mineralisation_fraction: 0.02
+
+limits:
+  # Rice is unusual in tolerating mildly acidic and even submerged soils well.
+  ph:
+    optimal: [5.5, 7.0]
+    tolerable: [4.5, 8.0]
+
+  temperature_c:
+    optimal: [20.0, 35.0]
+    heat_stress_above: 35.0      # spikelet sterility if it coincides with flowering
+    cold_stress_below: 15.0
+    heat_stress_critical_stage: mid
+
+  # The exception among these five crops: rice is grown IN standing water, so
+  # saturation is the normal state rather than a hazard. A high value here stops the
+  # engine raising spurious drainage alerts every time it rains on a paddy.
+  waterlogging_tolerance_days: 90

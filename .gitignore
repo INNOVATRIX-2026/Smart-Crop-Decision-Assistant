@@ -9,9 +9,14 @@ __pycache__/
 venv/
 env/
 
-# Generated artifacts (reproducible via scripts/train.py or first app run)
-data/
+# Generated artifacts (reproducible via scripts/train.py or first app run).
+# Note: `data/*` (not `data/`) so the negation below can re-include tracked
+# subdirectories — git cannot re-include a path whose parent directory is excluded.
+data/*
 models/
+
+# Hand-authored agronomic reference data — source, not generated. Must be tracked.
+!data/crops/
 
 # Streamlit / secrets
 .streamlit/secrets.toml
