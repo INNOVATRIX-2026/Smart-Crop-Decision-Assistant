@@ -1,0 +1,8 @@
+streamlit>=1.40
+scikit-learn>=1.5
+pandas>=2.2
+numpy>=2.0
+joblib>=1.4
+requests>=2.31
+altair>=5.0
+kagglehub>=0.3

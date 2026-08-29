@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Generated artifacts (reproducible via scripts/train.py or first app run)
+data/
+models/
+
+# Streamlit / secrets
+.streamlit/secrets.toml
+
+# OS
+.DS_Store
+Thumbs.db
