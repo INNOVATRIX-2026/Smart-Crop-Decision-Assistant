@@ -105,7 +105,7 @@ with st.sidebar:
     # ============================================================
 
     with st.expander(
-        "🌦️ Auto-fill weather by location",
+        "🌦️ give your current location",
         expanded=True
     ):
         city = st.text_input(
