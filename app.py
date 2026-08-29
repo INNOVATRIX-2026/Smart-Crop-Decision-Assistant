@@ -111,7 +111,7 @@ with st.sidebar:
         city = st.text_input(
             "City / place name",
             value="Pune",
-            placeholder="e.g. Pune, Nairobi, Iowa",
+            placeholder="e.g. Pune, warangal, nagpur",
             help=(
                 "Fetches live temperature, humidity, "
                 "and recent rainfall via Open-Meteo."
