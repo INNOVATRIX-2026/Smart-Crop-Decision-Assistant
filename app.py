@@ -70,31 +70,41 @@ CROPS = sorted(STATS.keys())
 for feat, meta in config.FEATURE_META.items():
     st.session_state.setdefault(feat, meta["default"])
 
-
 def _apply_weather(weather: dict) -> None:
-    """Push fetched weather into the input widgets.
+    """Push fetched weather into the input widgets, safely.
 
-    Values are clamped to each widget's declared bounds. Without this, a live fetch
-    over a monsoon region raises ``StreamlitValueAboveMaxError`` — Jabalpur in August
-    returns a 30-day total of ~465 mm against a slider that used to stop at 320.
+    Two things happen here and both matter:
 
-    The deeper issue is a units mismatch rather than a bounds problem: the dataset's
+    1. **The true API value is preserved** under ``actual_<key>`` in session state, so
+       the real measurement is never silently replaced by a clamped stand-in.
+    2. **The slider value is clamped** to the widget's declared bounds. Without this a
+       live fetch over a monsoon region raises ``StreamlitValueAboveMaxError`` —
+       Jabalpur in August returns a 30-day total of ~465 mm against a slider that used
+       to stop at 320.
+
+    The underlying problem is a units mismatch, not a bounds problem: the dataset's
     ``rainfall`` column means *growing-period* rainfall, while ``get_weather`` returns
-    the *last 30 days*. They are different quantities, so anything past the dataset's
-    range is extrapolation for the suitability model and is reported as such.
+    the *last 30 days*. Different quantities sharing a name. Anything past the
+    dataset's range is therefore extrapolation for the suitability model, and is
+    reported as such rather than quietly accepted.
     """
     notes: list[str] = []
+
     for key in ("temperature", "humidity", "rainfall"):
         raw = weather.get(key)
         if raw is None:
             continue
-        meta = config.FEATURE_META[key]
         value = float(raw)
-        clamped = min(max(value, meta["min"]), meta["max"])
+
+        # Keep the real measurement, separate from whatever the slider can display.
+        st.session_state[f"actual_{key}"] = value
+
+        meta = config.FEATURE_META[key]
+        clamped = max(float(meta["min"]), min(value, float(meta["max"])))
         if clamped != value:
             notes.append(
-                f"{meta['label']} {value:g} {meta['unit']} was outside the input range "
-                f"and clamped to {clamped:g}."
+                f"{meta['label']} {value:g} {meta['unit']} is outside the input range "
+                f"and was clamped to {clamped:g} for display."
             )
         st.session_state[key] = clamped
 
@@ -103,33 +113,78 @@ def _apply_weather(weather: dict) -> None:
         notes.append(
             f"{float(rain):g} mm over 30 days is beyond the suitability model's "
             f"training range (~{config.DATASET_RAINFALL_MAX:g} mm), so its ranking is "
-            f"extrapolating. The Management Actions tab is unaffected — it uses dated "
-            f"rainfall from Open-Meteo, not this figure."
+            f"extrapolating. The Management Actions tab is unaffected — it uses a "
+            f"dated rainfall series from Open-Meteo, not this figure."
         )
     st.session_state["_weather_notes"] = notes
-
 
 # --------------------------------------------------------------------------
 # Sidebar — inputs
 # --------------------------------------------------------------------------
 with st.sidebar:
     st.title("🌾 Field Inputs")
-    st.caption("Enter soil test values and current weather, then explore the tabs.")
+    st.caption(
+        "Enter soil test values and current weather, then explore the tabs."
+    )
 
-    with st.expander("🌦️  Auto-fill weather by location", expanded=True):
+    # ============================================================
+    # AUTO-FILL WEATHER
+    # ============================================================
+
+    with st.expander(
+        "🌦️ give your current location",
+        expanded=True
+    ):
         city = st.text_input(
-            "City / place name", value="Pune",
-            placeholder="e.g. Pune, Nairobi, Iowa",
-            help="Fetches live temperature, humidity, and recent rainfall via Open-Meteo.",
+            "City / place name",
+            value="Pune",
+            placeholder="e.g. Pune, warangal, nagpur",
+            help=(
+                "Fetches live temperature, humidity, "
+                "and recent rainfall via Open-Meteo."
+            ),
         )
+
         if st.button("Fetch live weather", width="stretch"):
+
             try:
                 loc, weather = _fetch_weather(city.strip())
+
                 if loc is None:
-                    st.warning("Location not found. Try a different name.")
+                    st.warning(
+                        "Location not found. Try a different name."
+                    )
+
                 else:
+                    # Store the REAL weather values separately
+                    st.session_state["actual_temperature"] = (
+                        weather["temperature"]
+                    )
+
+                    st.session_state["actual_humidity"] = (
+                        weather["humidity"]
+                    )
+
+                    st.session_state["actual_rainfall"] = (
+                        weather["rainfall"]
+                    )
+
+                    # ------------------------------------------------
+                    # Apply values to the existing sliders.
+                    # Values are clamped so Streamlit doesn't crash.
+                    # ------------------------------------------------
                     _apply_weather(weather)
-                    where = ", ".join(x for x in (loc["name"], loc["admin1"], loc["country"]) if x)
+
+                    where = ", ".join(
+                        x
+                        for x in (
+                            loc["name"],
+                            loc["admin1"],
+                            loc["country"],
+                        )
+                        if x
+                    )
+
                     st.success(
                         f"📍 {where}\n\n"
                         f"🌡️ {weather['temperature']} °C  •  "
@@ -138,26 +193,81 @@ with st.sidebar:
                     )
                     for note in st.session_state.get("_weather_notes", []):
                         st.info(note, icon="ℹ️")
+
             except Exception as exc:
-                st.error(f"Weather fetch failed: {exc}")
+                st.error(
+                    f"Weather fetch failed: {exc}"
+                )
+
+    # ============================================================
+    # SOIL NUTRIENTS
+    # ============================================================
 
     st.subheader("🧪 Soil nutrients")
+
     for feat in ("N", "P", "K", "ph"):
+
         m = config.FEATURE_META[feat]
+
         st.slider(
-            f"{m['label']}" + (f" ({m['unit']})" if m["unit"] else ""),
-            min_value=m["min"], max_value=m["max"], step=m["step"],
-            key=feat, help=m["help"],
+            f"{m['label']}" + (
+                f" ({m['unit']})"
+                if m["unit"]
+                else ""
+            ),
+            min_value=m["min"],
+            max_value=m["max"],
+            step=m["step"],
+            key=feat,
+            help=m["help"],
         )
 
+    # ============================================================
+    # CLIMATE
+    # ============================================================
+
     st.subheader("🌡️ Climate")
-    for feat in ("temperature", "humidity", "rainfall"):
+
+    for feat in (
+        "temperature",
+        "humidity",
+        "rainfall",
+    ):
+
         m = config.FEATURE_META[feat]
-        st.slider(
-            f"{m['label']}" + (f" ({m['unit']})" if m["unit"] else ""),
-            min_value=m["min"], max_value=m["max"], step=m["step"],
-            key=feat, help=m["help"],
+
+        # Defensively repair a stale session value before building the widget.
+        # A value left over from an earlier run (or an older, narrower slider range)
+        # would otherwise crash Streamlit on instantiation.
+        #
+        # Note: the clamped value is written back to session_state rather than passed
+        # as `value=`. Passing both `value` and `key` to a Streamlit widget makes it
+        # fight its own session-state binding and can reset the slider on every rerun.
+        try:
+            current_value = float(st.session_state.get(feat, m["min"]))
+        except (TypeError, ValueError):
+            current_value = float(m["min"])
+        st.session_state[feat] = max(
+            float(m["min"]), min(current_value, float(m["max"]))
         )
+
+        st.slider(
+            f"{m['label']}" + (
+                f" ({m['unit']})"
+                if m["unit"]
+                else ""
+            ),
+            min_value=m["min"],
+            max_value=m["max"],
+            step=m["step"],
+            key=feat,
+            help=m["help"],
+        )
+
+        # Show the true measurement when the slider had to clamp it.
+        actual = st.session_state.get(f"actual_{feat}")
+        if actual is not None and abs(float(actual) - st.session_state[feat]) > 1e-9:
+            st.caption(f"Measured: **{float(actual):g} {m['unit']}** (outside slider range)")
 
     st.divider()
     st.caption(f"📊 Dataset: **{SOURCE}** · {METRICS['n_samples']} samples · "
